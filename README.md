@@ -1,2 +1,1 @@
-# rzlog
-RZ logging 
+# RZ-log

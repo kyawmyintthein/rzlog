@@ -3,6 +3,7 @@ package rzlog
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -13,6 +14,7 @@ import (
 	"github.com/kyawmyintthein/rzerrors"
 	"github.com/kyawmyintthein/rzmiddleware"
 	"github.com/sirupsen/logrus"
+	"github.com/twitchtv/twirp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -48,6 +50,7 @@ type (
 		NewRequestLogger() func(next http.Handler) http.Handler
 		UnaryServerInterceptor(...Option) grpc.UnaryServerInterceptor
 		StreamServerInterceptor(...Option) grpc.StreamServerInterceptor
+		TwirpServerLoggingHook() *twirp.ServerHooks
 	}
 
 	LogEntry interface {
@@ -575,5 +578,58 @@ func newLoggerForCall(ctx context.Context, entry *logrus.Entry, callType string,
 		}
 	}
 	callLog.Infoln(fmt.Sprintf("gRPC.%s call started", callType))
+	return context.WithValue(ctx, LogEntryCtxKey{}, &StructuredLoggerEntry{logger: callLog})
+}
+
+func (logger *logger) TwirpServerLoggingHook() *twirp.ServerHooks {
+	return &twirp.ServerHooks{
+		RequestRouted: func(ctx context.Context) (context.Context, error) {
+			method, _ := twirp.MethodName(ctx)
+			entry := logrus.NewEntry(logger.logrus)
+			startTime := time.Now()
+			newCtx := newLoggerForTwirpCall(ctx, entry, method, startTime, time.RFC3339Nano)
+			return newCtx, nil
+		},
+		Error: func(ctx context.Context, twerr twirp.Error) context.Context {
+			log.Println("Error: " + string(twerr.Code()))
+			return ctx
+		},
+		ResponseSent: func(ctx context.Context) {
+			log.Println("Response Sent (error or success)")
+		},
+	}
+}
+
+func newLoggerForTwirpCall(ctx context.Context, entry *logrus.Entry, fullMethodString string, start time.Time, timestampFormat string) context.Context {
+	service := path.Dir(fullMethodString)[1:]
+	method := path.Base(fullMethodString)
+	callLog := entry.WithFields(
+		logrus.Fields{
+			_systemField:       "twirp",
+			_kindField:         "server",
+			"twirp.service":    service,
+			"twrip.method":     method,
+			"twirp.start_time": start.Format(timestampFormat),
+		})
+
+	if d, ok := ctx.Deadline(); ok {
+		callLog = callLog.WithFields(
+			logrus.Fields{
+				"twirp.request.deadline": d.Format(timestampFormat),
+			})
+	}
+
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		reqIDValues := md.Get(rzmiddleware.RequestIDHeader)
+		if len(reqIDValues) > 0 {
+			reqID := reqIDValues[0]
+			callLog = callLog.WithFields(
+				logrus.Fields{
+					"req_id": reqID,
+				})
+		}
+	}
+	callLog.Infoln(fmt.Sprintf("twirp.%s call started", method))
 	return context.WithValue(ctx, LogEntryCtxKey{}, &StructuredLoggerEntry{logger: callLog})
 }

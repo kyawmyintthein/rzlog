@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/twitchtv/twirp"
 	"google.golang.org/grpc"
 )
 
@@ -87,4 +88,9 @@ func UnaryServerInterceptor(opts ...Option) grpc.UnaryServerInterceptor {
 func StreamServerInterceptor(opts ...Option) grpc.StreamServerInterceptor {
 	logger := getLogger()
 	return logger.StreamServerInterceptor()
+}
+
+func TwirpServerLoggingHook() *twirp.ServerHooks {
+	logger := getLogger()
+	return logger.TwirpServerLoggingHook()
 }

@@ -298,6 +298,7 @@ func (l *logger) WarnKV(ctx context.Context, kv KV, args ...interface{}) {
 	log := l.getStructuredLogEntry(ctx)
 	if log != nil {
 		log.logger.WithFields(fields).Warnln(args...)
+		return
 	}
 	l.logrus.WithFields(fields).Warnln(args...)
 }
@@ -307,6 +308,7 @@ func (l *logger) InfoKV(ctx context.Context, kv KV, args ...interface{}) {
 	log := l.getStructuredLogEntry(ctx)
 	if log != nil {
 		log.logger.WithFields(fields).Info(args...)
+		return
 	}
 	l.logrus.WithFields(fields).Info(args...)
 }
@@ -598,9 +600,10 @@ func (logger *logger) TwirpServerLoggingHook() *twirp.ServerHooks {
 			if ok {
 				callLog := structureLoggerEntry.logger.WithFields(
 					logrus.Fields{
-						"error":      twerr.Error(),
-						"twirp.code": twerr.Code(),
-						"twirp.meta": twerr.MetaMap(),
+						"resp_status": twirp.ServerHTTPStatusFromErrorCode(twerr.Code()),
+						"error":       twerr.Error(),
+						"twirp.code":  twerr.Code(),
+						"twirp.meta":  twerr.MetaMap(),
 					})
 				callLog.Errorln("twirp call with error")
 			}
@@ -609,11 +612,7 @@ func (logger *logger) TwirpServerLoggingHook() *twirp.ServerHooks {
 		ResponseSent: func(ctx context.Context) {
 			structureLoggerEntry, ok := ctx.Value(LogEntryCtxKey{}).(*StructuredLoggerEntry)
 			if ok {
-				callLog := structureLoggerEntry.logger.WithFields(
-					logrus.Fields{
-						"twirp.end_time": time.Now().Format(time.RFC3339Nano),
-					})
-				callLog.Infoln("twirp call ended")
+				structureLoggerEntry.logger.Infoln("twirp call ended")
 			}
 		},
 	}
@@ -622,12 +621,12 @@ func (logger *logger) TwirpServerLoggingHook() *twirp.ServerHooks {
 func newLoggerForTwirpCall(ctx context.Context, entry *logrus.Entry, packageName string, service string, method string, reqID string, start time.Time, timestampFormat string) context.Context {
 	callLog := entry.WithFields(
 		logrus.Fields{
-			_systemField:       "twirp",
-			_kindField:         "server",
-			"twirp.package":    packageName,
-			"twirp.service":    service,
-			"twrip.method":     method,
-			"twirp.start_time": start.Format(timestampFormat),
+			_systemField:    "twirp",
+			_kindField:      "server",
+			"twirp.package": packageName,
+			"twirp.service": service,
+			"twrip.method":  method,
+			"@timestamp":    start.Format(timestampFormat),
 		})
 
 	if reqID != "" {
